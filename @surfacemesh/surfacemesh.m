@@ -141,6 +141,12 @@ classdef surfacemesh < handle
         dom = import(varargin);
         dom = square(varargin);
 
+        % New methods
+        dom = disk(varargin);
+        dom = ellipticgrid(varargin);
+        [x, y] = inherit_connectivity(varargin);
+        dom = image(varargin);
+
     end
 
 end

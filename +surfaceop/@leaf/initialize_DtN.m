@@ -89,7 +89,7 @@ for name = fieldnames(op).'
     if ( isa(op.(name), 'function_handle') )
         op.(name) = feval(op.(name), X, Y, Z);
     elseif ( isa(op.(name), 'surfacefun') )
-        op.(name) = reshape([op.(name).vals{:}], [n^2 numPatches]);
+        op.(name) = reshape(op.(name).vec(), [n^2 numPatches]); 
     elseif ( isscalar(op.(name)) )
         op.(name) = repmat(op.(name), [1 numPatches]);
     end
