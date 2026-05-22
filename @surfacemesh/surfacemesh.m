@@ -143,7 +143,9 @@ classdef surfacemesh < handle
 
         % New methods
         dom = disk(varargin);
+        dom = ellipse(varargin);
         dom = ellipticgrid(varargin);
+        dom = star(varargin);
         [x, y] = inherit_connectivity(varargin);
         dom = image(varargin);
 

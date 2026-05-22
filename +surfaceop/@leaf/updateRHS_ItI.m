@@ -25,19 +25,35 @@ if ( iscell(rhs) && isa(rhs{1}, 'function_handle') )
 end
 
 if ( iscell(rhs) )
-    rhs = reshape([rhs{1,:}], n^2, nrhs);
+    if ( numel(rhs) == 1 && isnumeric(rhs{1}) && isvector(rhs{1}) && ...
+            numel(rhs{1}) ~= n^2 )
+        rhs = rhs{1};
+    else
+        rhs = reshape([rhs{1,:}], n^2, nrhs);
+    end
 end
 
 % Define scalar RHSs:
 if ( isnumeric(rhs) && isscalar(rhs) )
     % Constant RHS.
     rhs = repmat(rhs, n^2, 1);
+elseif ( isnumeric(rhs) && isvector(rhs) && numel(rhs) ~= n^2 )
+    % Constant vector RHS.
+    nrhs = numel(rhs);
+    rhs = repmat(reshape(rhs, 1, nrhs), n^2, 1);
 elseif ( isnumeric(rhs) && ~isscalar(rhs) )
     % We already have the values of the RHS.
 elseif ( isa(rhs, 'function_handle') )
     rhs = feval(rhs, dom.x{id}, dom.y{id}, dom.z{id});
-    rhs = reshape(rhs, n^2, 1);
+    if ( isvector(rhs) && numel(rhs) ~= n^2 )
+        nrhs = numel(rhs);
+        rhs = repmat(reshape(rhs, 1, nrhs), n^2, 1);
+    else
+        rhs = reshape(rhs, n^2, []);
+    end
 end
+
+nrhs = size(rhs, 2);
 
 % Restrict to interior nodes.
 rhs = rhs(ii,:);

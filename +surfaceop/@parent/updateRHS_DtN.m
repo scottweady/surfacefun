@@ -35,8 +35,17 @@ P.u_part = P.dA \ (scl2.*(flip1*a.du_part(s1,:)) + scl1.*(flip2*b.du_part(s2,:))
 
 % Compute new D2N map:
 % TODO: Also scale this???
-P.du_part = [ a.du_part(i1,:) ; b.du_part(i2,:) ] + ...
-            [ DtNa(i1,s1)*flip1.' ; DtNb(i2,s2)*flip2.' ] * P.u_part;
+du_part = [ a.du_part(i1,:) ; b.du_part(i2,:) ] + ...
+          [ DtNa(i1,s1)*flip1.' ; DtNb(i2,s2)*flip2.' ] * P.u_part;
+
+if ( numel(P.idx1) >= 3 )
+    n1 = numel(i1);
+    P.du_part = zeros(size(du_part));
+    P.du_part(P.idx1{3},:) = du_part(1:n1,:);
+    P.du_part(P.idx2{3},:) = du_part(n1+1:end,:);
+else
+    P.du_part = du_part;
+end
 
 P.child1 = a;
 P.child2 = b;

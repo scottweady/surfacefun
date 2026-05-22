@@ -9,6 +9,8 @@ function S = updateRHS(S, f)
 
 assert(isInitialized(S), 'The surfaceop has not been initialized.')
 
+[f, S.outputType] = parseVectorData(f);
+
 % Extract values if f is a surfacefun:
 if ( isa(f, 'surfacefun') )
     nrhs = size(f, 2);

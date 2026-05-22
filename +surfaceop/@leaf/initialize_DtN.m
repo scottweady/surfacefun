@@ -24,6 +24,7 @@ end
 
 numPatches = length(dom);
 n = size(dom.x{1}, 1);
+ncomp = op.numComponents;
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% %%%%%%%%%%%%%%%%%%%%%%% DEFINE REFERENCE GRID %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -64,10 +65,11 @@ ux = reshape([dom.ux{:}], [n^2 numPatches]); vx = reshape([dom.vx{:}], [n^2 numP
 uy = reshape([dom.uy{:}], [n^2 numPatches]); vy = reshape([dom.vy{:}], [n^2 numPatches]);
 uz = reshape([dom.uz{:}], [n^2 numPatches]); vz = reshape([dom.vz{:}], [n^2 numPatches]);
 
-nrhs = size(rhs, 2);
-tmpS = zeros(n^2, numBdyPts+nrhs);
-tmpS(ee,:) = eye(numBdyPts, numBdyPts+nrhs);
 D2N_scl0 = {ones(nskel,1) ; ones(nskel,1) ; ones(nskel,1) ; ones(nskel,1)};
+S2L_dofs = S2L;
+if ( ncomp > 1 )
+    S2L_dofs = kron(eye(ncomp), S2L);
+end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% %%%%%%%%%%%%%%%%%%%%%%%%% DEFINE OPERATORS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -82,33 +84,36 @@ X = reshape([dom.x{:}], [n^2 numPatches]);
 Y = reshape([dom.y{:}], [n^2 numPatches]);
 Z = reshape([dom.z{:}], [n^2 numPatches]);
 
-flags = structfun(@(f) ~(isscalar(f) && isnumeric(f) && f==0), op, 'UniformOutput', false);
+coeffNames = {'dxx', 'dyy', 'dzz', 'dxy', 'dyx', 'dyz', ...
+              'dzy', 'dxz', 'dzx', 'dx', 'dy', 'dz', 'b'};
+flags = struct();
+for name = coeffNames
+    flags.(name{1}) = ~isZeroCoefficient(op.(name{1}), ncomp);
+end
 
-for name = fieldnames(op).'
+for name = coeffNames
     name = name{1};
-    if ( isa(op.(name), 'function_handle') )
-        op.(name) = feval(op.(name), X, Y, Z);
-    elseif ( isa(op.(name), 'surfacefun') )
-        op.(name) = reshape(op.(name).vec(), [n^2 numPatches]); 
-    elseif ( isscalar(op.(name)) )
-        op.(name) = repmat(op.(name), [1 numPatches]);
-    end
+    op.(name) = parseCoefficient(op.(name), X, Y, Z, n^2, numPatches, ncomp);
 end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%% CONSTANT RHS? %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% Evaluate non-constant RHSs if required:
-if ( isa(rhs, 'function_handle') )
-    rhs = feval(rhs, X(ii,:), Y(ii,:), Z(ii,:));
-    rhs = reshape(rhs, [numIntPts 1 numPatches]);
-elseif ( isa(rhs, 'surfacefun') )
-    rhs = reshape(rhs.vec(), [n^2 numPatches nrhs]);
-    rhs = permute(rhs, [1 3 2]);
-    rhs = rhs(ii,:,:);
-elseif ( isnumeric(rhs) && isscalar(rhs) )
-    rhs = repmat(rhs, [numIntPts 1 numPatches]);
+rhs = formatRHS(rhs, X, Y, Z, ii, n, numIntPts, numPatches);
+if ( ncomp > 1 )
+    rhs = formatCoupledRHS(rhs, ncomp, numIntPts, numPatches);
 end
+nrhs = size(rhs, 2);
+if ( ncomp == 1 )
+    iiSol = ii;
+    eeSol = ee;
+else
+    iiSol = blockIdx(find(ii), ncomp, n^2);
+    eeSol = blockIdx(find(ee), ncomp, n^2);
+end
+numBdyDofs = ncomp*numBdyPts;
+tmpS = zeros(ncomp*n^2, numBdyDofs+nrhs);
+tmpS(eeSol,:) = eye(numBdyDofs, numBdyDofs+nrhs);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% %%%%%%%%%%%%%%%%%%%%%%% SOLVE LOCAL PROBLEMS %%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -128,7 +133,7 @@ for k = 1:numPatches
               x(1,1) y(1,1) z(1,1) x(1,n) y(1,n) z(1,n) nskel ;  % "Down" side
               x(n,1) y(n,1) z(n,1) x(n,n) y(n,n) z(n,n) nskel ]; % "Up" side
 
-    A = zeros(n^2);
+    A = zeros(ncomp*n^2);
     Dx = ux(:,k).*Du + vx(:,k).*Dv;
     Dy = uy(:,k).*Du + vy(:,k).*Dv;
     Dz = uz(:,k).*Du + vz(:,k).*Dv;
@@ -137,24 +142,25 @@ for k = 1:numPatches
     if ( dom.singular(k) )
 
         % Assemble matrix:
-        if ( flags.dxx ), A = A + op.dxx(:,k).*(J.*(Dx*Dx)-(Dx*J).*Dx); end
-        if ( flags.dyy ), A = A + op.dyy(:,k).*(J.*(Dy*Dy)-(Dy*J).*Dy); end
-        if ( flags.dzz ), A = A + op.dzz(:,k).*(J.*(Dz*Dz)-(Dz*J).*Dz); end
-        if ( flags.dxy ), A = A + op.dxy(:,k).*(J.*(Dx*Dy)-(Dx*J).*Dy); end
-        if ( flags.dyx ), A = A + op.dyx(:,k).*(J.*(Dy*Dx)-(Dy*J).*Dx); end
-        if ( flags.dyz ), A = A + op.dyz(:,k).*(J.*(Dy*Dz)-(Dy*J).*Dz); end
-        if ( flags.dzy ), A = A + op.dzy(:,k).*(J.*(Dz*Dy)-(Dz*J).*Dy); end
-        if ( flags.dxz ), A = A + op.dxz(:,k).*(J.*(Dx*Dz)-(Dx*J).*Dz); end
-        if ( flags.dzx ), A = A + op.dzx(:,k).*(J.*(Dz*Dx)-(Dz*J).*Dx); end
-        if ( flags.dx  ), A = A + op.dx(:,k).*J.^2.*Dx;                 end
-        if ( flags.dy  ), A = A + op.dy(:,k).*J.^2.*Dy;                 end
-        if ( flags.dz  ), A = A + op.dz(:,k).*J.^2.*Dz;                 end
-        if ( flags.b   ), A = A + op.b(:,k).*J.^3.*II;                  end
+        if ( flags.dxx ), A = A + assembleBlock(op.dxx, k, J.*(Dx*Dx)-(Dx*J).*Dx, ncomp); end
+        if ( flags.dyy ), A = A + assembleBlock(op.dyy, k, J.*(Dy*Dy)-(Dy*J).*Dy, ncomp); end
+        if ( flags.dzz ), A = A + assembleBlock(op.dzz, k, J.*(Dz*Dz)-(Dz*J).*Dz, ncomp); end
+        if ( flags.dxy ), A = A + assembleBlock(op.dxy, k, J.*(Dx*Dy)-(Dx*J).*Dy, ncomp); end
+        if ( flags.dyx ), A = A + assembleBlock(op.dyx, k, J.*(Dy*Dx)-(Dy*J).*Dx, ncomp); end
+        if ( flags.dyz ), A = A + assembleBlock(op.dyz, k, J.*(Dy*Dz)-(Dy*J).*Dz, ncomp); end
+        if ( flags.dzy ), A = A + assembleBlock(op.dzy, k, J.*(Dz*Dy)-(Dz*J).*Dy, ncomp); end
+        if ( flags.dxz ), A = A + assembleBlock(op.dxz, k, J.*(Dx*Dz)-(Dx*J).*Dz, ncomp); end
+        if ( flags.dzx ), A = A + assembleBlock(op.dzx, k, J.*(Dz*Dx)-(Dz*J).*Dx, ncomp); end
+        if ( flags.dx  ), A = A + assembleBlock(op.dx,  k, J.^2.*Dx,                 ncomp); end
+        if ( flags.dy  ), A = A + assembleBlock(op.dy,  k, J.^2.*Dy,                 ncomp); end
+        if ( flags.dz  ), A = A + assembleBlock(op.dz,  k, J.^2.*Dz,                 ncomp); end
+        if ( flags.b   ), A = A + assembleBlock(op.b,   k, J.^3.*II,                 ncomp); end
 
         % Construct solution operator:
-        dA = decomposition(A(ii,ii), 'cod');
-        Ainv = @(u) dA \ (J(ii).^3.*u);
-        S = dA \ ([-A(ii,ee), J(ii).^3.*rhs(:,k)]);
+        dA = decomposition(A(iiSol,iiSol), 'cod');
+        rhsScale = repmat(J(ii).^3, ncomp, 1);
+        Ainv = @(u) dA \ (rhsScale.*u);
+        S = dA \ ([-A(iiSol,eeSol), rhsScale.*rhs(:,:,k)]);
 
         dx = L2S * (J(ee).^2.*Dx(ee,:));
         dy = L2S * (J(ee).^2.*Dy(ee,:));
@@ -171,24 +177,24 @@ for k = 1:numPatches
     else
 
         % Assemble matrix:
-        if ( flags.dxx ), A = A + op.dxx(:,k).*(Dx*Dx); end
-        if ( flags.dyy ), A = A + op.dyy(:,k).*(Dy*Dy); end
-        if ( flags.dzz ), A = A + op.dzz(:,k).*(Dz*Dz); end
-        if ( flags.dxy ), A = A + op.dxy(:,k).*(Dx*Dy); end
-        if ( flags.dyx ), A = A + op.dyx(:,k).*(Dy*Dx); end
-        if ( flags.dyz ), A = A + op.dyz(:,k).*(Dy*Dz); end
-        if ( flags.dzy ), A = A + op.dzy(:,k).*(Dz*Dy); end
-        if ( flags.dxz ), A = A + op.dxz(:,k).*(Dx*Dz); end
-        if ( flags.dzx ), A = A + op.dzx(:,k).*(Dz*Dx); end
-        if ( flags.dx  ), A = A + op.dx(:,k).*Dx;       end
-        if ( flags.dy  ), A = A + op.dy(:,k).*Dy;       end
-        if ( flags.dz  ), A = A + op.dz(:,k).*Dz;       end
-        if ( flags.b   ), A = A + op.b(:,k).*II;        end
+        if ( flags.dxx ), A = A + assembleBlock(op.dxx, k, Dx*Dx, ncomp); end
+        if ( flags.dyy ), A = A + assembleBlock(op.dyy, k, Dy*Dy, ncomp); end
+        if ( flags.dzz ), A = A + assembleBlock(op.dzz, k, Dz*Dz, ncomp); end
+        if ( flags.dxy ), A = A + assembleBlock(op.dxy, k, Dx*Dy, ncomp); end
+        if ( flags.dyx ), A = A + assembleBlock(op.dyx, k, Dy*Dx, ncomp); end
+        if ( flags.dyz ), A = A + assembleBlock(op.dyz, k, Dy*Dz, ncomp); end
+        if ( flags.dzy ), A = A + assembleBlock(op.dzy, k, Dz*Dy, ncomp); end
+        if ( flags.dxz ), A = A + assembleBlock(op.dxz, k, Dx*Dz, ncomp); end
+        if ( flags.dzx ), A = A + assembleBlock(op.dzx, k, Dz*Dx, ncomp); end
+        if ( flags.dx  ), A = A + assembleBlock(op.dx,  k, Dx,    ncomp); end
+        if ( flags.dy  ), A = A + assembleBlock(op.dy,  k, Dy,    ncomp); end
+        if ( flags.dz  ), A = A + assembleBlock(op.dz,  k, Dz,    ncomp); end
+        if ( flags.b   ), A = A + assembleBlock(op.b,   k, II,    ncomp); end
 
         % Construct solution operator:
-        dA = matlab.internal.decomposition.DenseLU(A(ii,ii));
+        dA = matlab.internal.decomposition.DenseLU(A(iiSol,iiSol));
         Ainv = @(u) solve(dA, u, false);
-        S = Ainv([-A(ii,ee), rhs(:,:,k)]);
+        S = Ainv([-A(iiSol,eeSol), rhs(:,:,k)]);
 
         dx = L2S * Dx(ee,:);
         dy = L2S * Dy(ee,:);
@@ -198,12 +204,15 @@ for k = 1:numPatches
 
     % Append boundary points to solution operator and extract the
     % particular solution to store separately:
-    tmpS(ii,:) = S;
-    S = tmpS(:,1:numBdyPts) * S2L;
-    u_part = tmpS(:,numBdyPts+1:end);
+    tmpS(iiSol,:) = S;
+    S = tmpS(:,1:numBdyDofs) * S2L_dofs;
+    u_part = tmpS(:,numBdyDofs+1:end);
 
     % Construct normal derivative operator:
     normal_d = NN(:,1,k).*dx + NN(:,2,k).*dy + NN(:,3,k).*dz;
+    if ( ncomp > 1 )
+        normal_d = kron(eye(ncomp), normal_d);
+    end
 
     % Construct the D2N map and particular flux;
     D2N = normal_d * S;
@@ -216,6 +225,157 @@ for k = 1:numPatches
     % Assemble the patch:
     L{k} = surfaceop.leaf(dom, n, k, S, D2N, D2N_scl, u_part, du_part, edges, xyz, ww, Ainv, normal_d);
 
+end
+
+end
+
+function out = parseCoefficient(c, X, Y, Z, n2, numPatches, ncomp)
+
+if ( ncomp == 1 )
+    out = scalarCoefficient(c, X, Y, Z, n2, numPatches);
+    return
+end
+
+out = cell(ncomp);
+if ( iscell(c) )
+    if ( ~isequal(size(c), [ncomp ncomp]) )
+        error('SURFACEOP:LEAF:coefficientSize', ...
+            'Coupled coefficients must be %d-by-%d cell arrays.', ncomp, ncomp);
+    end
+    for i = 1:ncomp
+        for j = 1:ncomp
+            out{i,j} = scalarCoefficient(c{i,j}, X, Y, Z, n2, numPatches);
+        end
+    end
+elseif ( isnumeric(c) && ismatrix(c) && isequal(size(c), [ncomp ncomp]) )
+    for i = 1:ncomp
+        for j = 1:ncomp
+            out{i,j} = scalarCoefficient(c(i,j), X, Y, Z, n2, numPatches);
+        end
+    end
+else
+    for i = 1:ncomp
+        for j = 1:ncomp
+            if ( i == j )
+                out{i,j} = scalarCoefficient(c, X, Y, Z, n2, numPatches);
+            else
+                out{i,j} = zeros(n2, numPatches);
+            end
+        end
+    end
+end
+
+end
+
+function c = scalarCoefficient(c, X, Y, Z, n2, numPatches)
+
+if ( isa(c, 'function_handle') )
+    c = feval(c, X, Y, Z);
+elseif ( isa(c, 'surfacefun') )
+    c = reshape(c.vec(), [n2 numPatches]);
+elseif ( isnumeric(c) && isscalar(c) )
+    c = repmat(c, [n2 numPatches]);
+end
+
+end
+
+function tf = isZeroCoefficient(c, ncomp)
+
+if ( iscell(c) )
+    tf = true;
+    for k = 1:numel(c)
+        tf = tf && isZeroCoefficient(c{k}, 1);
+    end
+elseif ( isnumeric(c) && isscalar(c) )
+    tf = c == 0;
+elseif ( isnumeric(c) && ismatrix(c) && ncomp > 1 )
+    tf = all(c == 0, 'all');
+else
+    tf = false;
+end
+
+end
+
+function A = assembleBlock(c, patchIdx, D, ncomp)
+
+if ( ncomp == 1 )
+    A = c(:,patchIdx).*D;
+    return
+end
+
+n2 = size(D, 1);
+A = zeros(ncomp*n2);
+for i = 1:ncomp
+    rows = (i-1)*n2 + (1:n2);
+    for j = 1:ncomp
+        vals = c{i,j}(:,patchIdx);
+        if ( any(vals ~= 0) )
+            cols = (j-1)*n2 + (1:n2);
+            A(rows, cols) = vals.*D;
+        end
+    end
+end
+
+end
+
+function rhs = formatCoupledRHS(rhs, ncomp, numIntPts, numPatches)
+
+if ( size(rhs, 2) == 1 )
+    rhs = repmat(rhs, [1 ncomp 1]);
+elseif ( size(rhs, 2) ~= ncomp )
+    error('SURFACEOP:LEAF:rhsDimensions', ...
+        'Coupled vector PDE righthand sides must have %d components.', ncomp);
+end
+
+out = zeros(ncomp*numIntPts, 1, numPatches);
+for k = 1:numPatches
+    out(:,1,k) = reshape(rhs(:,:,k), [], 1);
+end
+rhs = out;
+
+end
+
+function idx = blockIdx(idx, ncomp, nbase)
+
+idx = idx(:);
+idx = idx + (0:ncomp-1)*nbase;
+idx = idx(:);
+
+end
+
+function rhs = formatRHS(rhs, X, Y, Z, ii, n, numIntPts, numPatches)
+
+if ( isa(rhs, 'function_handle') )
+    rhs = feval(rhs, X(ii,:), Y(ii,:), Z(ii,:));
+end
+
+if ( isa(rhs, 'surfacefun') )
+    nrhs = size(rhs, 2);
+    rhs = reshape(rhs.vec(), [n^2 numPatches nrhs]);
+    rhs = permute(rhs, [1 3 2]);
+    rhs = rhs(ii,:,:);
+elseif ( isnumeric(rhs) && isscalar(rhs) )
+    rhs = repmat(rhs, [numIntPts 1 numPatches]);
+elseif ( isnumeric(rhs) && isvector(rhs) && numel(rhs) ~= numIntPts*numPatches )
+    nrhs = numel(rhs);
+    rhs = repmat(reshape(rhs, 1, nrhs, 1), [numIntPts 1 numPatches]);
+elseif ( isnumeric(rhs) && ndims(rhs) == 3 )
+    if ( size(rhs, 1) == numIntPts && size(rhs, 3) == numPatches )
+        % Already in numIntPts x nrhs x numPatches form.
+    elseif ( size(rhs, 1) == numIntPts && size(rhs, 2) == numPatches )
+        rhs = permute(rhs, [1 3 2]);
+    else
+        error('SURFACEOP:LEAF:initialize:rhsDimensions', ...
+            'Righthand side data has incompatible dimensions.');
+    end
+elseif ( isnumeric(rhs) && size(rhs, 1) == numIntPts && ...
+        mod(size(rhs, 2), numPatches) == 0 )
+    nrhs = size(rhs, 2)/numPatches;
+    rhs = reshape(rhs, [numIntPts numPatches nrhs]);
+    rhs = permute(rhs, [1 3 2]);
+else
+    error('SURFACEOP:LEAF:initialize:rhsDimensions', ...
+        'Righthand side data has incompatible dimensions.');
 end
 
 end

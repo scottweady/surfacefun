@@ -14,6 +14,9 @@ classdef surfaceop < handle
         rankdef = false
         method = []
         eta = []
+        outputType = 'surfacefun'
+        numComponents = 1
+        isCoupled = false
 
     end
 
@@ -51,6 +54,12 @@ classdef surfaceop < handle
             end
 
             obj.op = parsePDO(op);
+            obj.numComponents = obj.op.numComponents;
+            obj.isCoupled = obj.numComponents > 1;
+            [rhs, obj.outputType] = parseVectorData(rhs);
+            if ( obj.isCoupled )
+                obj.outputType = 'surfacefunv';
+            end
  
             % Assign the domain:
             obj.domain = dom;
@@ -124,6 +133,7 @@ out.dyz = 0; out.dzy = 0;
 out.dxz = 0; out.dzx = 0;
 out.dx  = 0; out.dy  = 0; out.dz  = 0;
 out.b   = 0;
+out.numComponents = inferNumComponents(in);
 
 % Laplacian shorthand
 if ( isfield(in, 'lap') )
@@ -160,5 +170,43 @@ if ( isfield(in, 'dz') ), out.dz = in.dz; end
 % Zero-th derivative
 if ( isfield(in, 'b') ), out.b = in.b; end
 if ( isfield(in, 'c') ), out.b = in.c; end % Alternative syntax
+
+end
+
+function ncomp = inferNumComponents(in)
+
+ncomp = 1;
+names = {'lap', 'grad', 'dxx', 'dyy', 'dzz', 'dxy', 'dyx', 'dyz', ...
+         'dzy', 'dxz', 'dzx', 'dx', 'dy', 'dz', 'b', 'c'};
+
+for k = 1:numel(names)
+    if ( isfield(in, names{k}) )
+        ncomp = max(ncomp, coefficientSize(in.(names{k})));
+    end
+end
+
+if ( ncomp < 1 )
+    error('SURFACEOP:surfaceop:components', ...
+        'Number of PDE components must be at least 1.');
+end
+
+end
+
+function ncomp = coefficientSize(c)
+
+ncomp = 1;
+if ( iscell(c) && ismatrix(c) && any(size(c) > 1) )
+    if ( size(c, 1) ~= size(c, 2) )
+        error('SURFACEOP:surfaceop:coefficientSize', ...
+            'Coupled coefficient cell arrays must be square.');
+    end
+    ncomp = size(c, 1);
+elseif ( isnumeric(c) && ismatrix(c) && ~isscalar(c) )
+    if ( size(c, 1) ~= size(c, 2) )
+        error('SURFACEOP:surfaceop:coefficientSize', ...
+            'Coupled coefficient matrices must be square.');
+    end
+    ncomp = size(c, 1);
+end
 
 end

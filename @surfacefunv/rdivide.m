@@ -1,57 +1,58 @@
 function h = rdivide(f, g)
-%./   Pointwise right divide for SURFACEFUN.
-%   F./G divides F by G, where F and G may be SURFACEFUN objects or
-%   scalars.
+%./   Pointwise right divide for SURFACEFUNV.
+%   F./G divides F by G, where F and G may be SURFACEFUNV objects or scalars.
 %
 %   See also LDIVIDE, COMPOSE.
 
-% Empty check:
 h = surfacefunv;
 if ( isempty(f) || isempty(g) )
     return
 end
 
 if ( isa(f, 'surfacefunv') && isa(g, 'surfacefunv') )
-    % Divide two SURFACEFUNVs:
-    h.components{1} = f.components{1} ./ g.components{1};
-    h.components{2} = f.components{2} ./ g.components{2};
-    h.components{3} = f.components{3} ./ g.components{3};
+    ncomp = numel(f.components);
+    h.components = cell(1, ncomp);
+    for k = 1:ncomp
+        h.components{k} = f.components{k} ./ g.components{k};
+    end
 elseif ( isa(f, 'surfacefunv') && isa(g, 'surfacefun') )
-    % Divide SURFACEFUNV F by SURFACEFUN G:
-    h.components{1} = f.components{1} ./ g;
-    h.components{2} = f.components{2} ./ g;
-    h.components{3} = f.components{3} ./ g;
+    ncomp = numel(f.components);
+    h.components = cell(1, ncomp);
+    for k = 1:ncomp
+        h.components{k} = f.components{k} ./ g;
+    end
 elseif ( isa(f, 'surfacefun') && isa(g, 'surfacefunv') )
-    % Divide SURFACEFUN F by SURFACEFUNV G:
-    h.components{1} = f ./ g.components{1};
-    h.components{2} = f ./ g.components{2};
-    h.components{3} = f ./ g.components{3};
+    ncomp = numel(g.components);
+    h.components = cell(1, ncomp);
+    for k = 1:ncomp
+        h.components{k} = f ./ g.components{k};
+    end
 elseif ( isa(f, 'surfacefunv') && isnumeric(g) )
+    ncomp = numel(f.components);
+    h.components = cell(1, ncomp);
     if ( isscalar(g) )
-        % Divide SURFACEFUNV F by scalar G:
-        h.components{1} = f.components{1} ./ g;
-        h.components{2} = f.components{2} ./ g;
-        h.components{3} = f.components{3} ./ g;
-    elseif ( numel(g) == 3 )
-        % Divide SURFACEFUNV F by vector G:
-        h.components{1} = f.components{1} ./ g(1);
-        h.components{2} = f.components{2} ./ g(2);
-        h.components{3} = f.components{3} ./ g(3);
+        for k = 1:ncomp
+            h.components{k} = f.components{k} ./ g;
+        end
+    elseif ( numel(g) == ncomp )
+        for k = 1:ncomp
+            h.components{k} = f.components{k} ./ g(k);
+        end
     else
         error('SURFACEFUNV:rdivide:invalid', ...
             'F and G must be surfacefunv objects, scalars, or constant vectors.');
     end
 elseif ( isnumeric(f) && isa(g, 'surfacefunv') )
+    ncomp = numel(g.components);
+    h.components = cell(1, ncomp);
     if ( isscalar(f) )
-        % Divide scalar F by SURFACEFUNV G:
-        g.components{1} = f ./ g.components{1};
-        g.components{2} = f ./ g.components{2};
-        g.components{3} = f ./ g.components{3};
-    elseif ( numel(f) == 3 )
-        % Divide vector F by SURFACEFUNV G:
-        g.components{1} = f(1) ./ g.components{1};
-        g.components{2} = f(2) ./ g.components{2};
-        g.components{3} = f(3) ./ g.components{3};
+        for k = 1:ncomp
+            h.components{k} = f ./ g.components{k};
+        end
+    elseif ( numel(f) == ncomp )
+        for k = 1:ncomp
+            h.components{k} = f(k) ./ g.components{k};
+        end
     else
         error('SURFACEFUNV:rdivide:invalid', ...
             'F and G must be surfacefunv objects, scalars, or constant vectors.');

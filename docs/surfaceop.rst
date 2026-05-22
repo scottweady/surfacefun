@@ -127,6 +127,64 @@ Let's check the error:
              6.209136661992651e-12
         </pre>
 
+Vector-valued PDEs
+------------------
+
+The same ``surfaceop`` factorization may also be applied componentwise to a
+``surfacefunv`` righthand side. This solves uncoupled vector-valued problems of
+the form
+
+.. math::
+
+    \mathcal{L}_\Gamma \boldsymbol{u}(\boldsymbol{x}) =
+    \boldsymbol{f}(\boldsymbol{x}),
+
+where the scalar operator :math:`\mathcal{L}_\Gamma` is applied to each
+Cartesian component of :math:`\boldsymbol{u}`.
+
+For example, to solve a shifted vector Laplace--Beltrami problem:
+
+.. code-block:: matlab
+
+    pdo = [];
+    pdo.lap = 1;
+    pdo.c = -1;
+
+    sol = surfacefunv(@(x,y,z) x.*z, ...
+                      @(x,y,z) y.*z, ...
+                      @(x,y,z) x.^2-y.^2, dom);
+    f = lap(sol) - sol;
+
+    L = surfaceop(dom, pdo, f);
+    u = L.solve();
+
+The result ``u`` is a ``surfacefunv``. On an open surface, vector Dirichlet data
+may be supplied as a constant vector or as a function handle returning three
+columns:
+
+.. code-block:: matlab
+
+    bc = @(x,y,z) [x y z];
+    u = L.solve(bc);
+
+Coupled vector-valued systems can be specified by using 3-by-3 coefficient
+matrices. For instance,
+
+.. code-block:: matlab
+
+    pdo = [];
+    pdo.lap = eye(3);
+    pdo.c = [1 0.2 0 ; -0.1 2 0.3 ; 0 -0.2 1];
+
+    f = surfacefunv(@(x,y,z) x, @(x,y,z) y, @(x,y,z) z, dom);
+    L = surfaceop(dom, pdo, f);
+    u = L.solve();
+
+applies the Laplace--Beltrami operator to each component while coupling the
+components through the zeroth-order term. Variable coupled coefficients may be
+provided as 3-by-3 cell arrays whose entries are constants, function handles, or
+``surfacefun`` objects.
+
 Surface PDEs on surfaces of arbitrary genus may be solved using ``surfaceop``.
 For example, here is the solution to a variable-coefficient surface Helmholtz
 equation on a genus-1 stellarator geometry:

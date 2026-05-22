@@ -44,8 +44,8 @@ if ( isscalar(n) )
     end
 end
 
-f.components{1} = diff(f.components{1}, n, dim);
-f.components{2} = diff(f.components{2}, n, dim);
-f.components{3} = diff(f.components{3}, n, dim);
+for k = 1:numel(f.components)
+    f.components{k} = diff(f.components{k}, n, dim);
+end
 
 end

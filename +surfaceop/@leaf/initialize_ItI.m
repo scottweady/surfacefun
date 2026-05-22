@@ -102,16 +102,8 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%% CONSTANT RHS? %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% Evaluate non-constant RHSs if required:
-if ( isa(rhs, 'function_handle') )
-    rhs = feval(rhs, X(ii,:), Y(ii,:), Z(ii,:));
-elseif ( isa(rhs, 'surfacefun') )
-    vals = rhs.vals;
-    rhs = reshape([vals{:}], [n^2 numPatches]);
-    rhs = rhs(ii,:);
-elseif ( isnumeric(rhs) && isscalar(rhs) )
-    rhs = repmat(rhs, numIntPts, numPatches);
-end
+rhs = formatRHS(rhs, X, Y, Z, ii, n, numIntPts, numPatches);
+nrhs = size(rhs, 2);
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% %%%%%%%%%%%%%%%%%%%%%%% SOLVE LOCAL PROBLEMS %%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -157,7 +149,7 @@ for k = 1:numPatches
         % Construct solution operator:
         dA = decomposition(A(ii,ii), 'cod');
         Ainv = @(u) dA \ (J(ii).^3.*u);
-        S = dA \ ([-A(ii,ee), J(ii).^3.*rhs(:,k)]);
+        S = dA \ ([-A(ii,ee), J(ii).^3.*rhs(:,:,k)]);
 
         dx = L2S * (J(ee).^2.*Dx(ee,:));
         dy = L2S * (J(ee).^2.*Dy(ee,:));
@@ -211,7 +203,7 @@ for k = 1:numPatches
         bc(corners,:) = bc(corners,:)/2;
 
         BC = [ zeros(numIntPts, numBdyPts) ; eye(numBdyPts) ];
-        RHS = [rhs(:,k); zeros(numBdyPts, 1)];
+        RHS = [rhs(:,:,k); zeros(numBdyPts, nrhs)];
 
         LL = [ A(ipde,:) ; bc ];
         dA = matlab.internal.decomposition.DenseLU(LL);
@@ -223,8 +215,8 @@ for k = 1:numPatches
 
     % Append boundary points to solution operator and extract the
     % particular solution to store separately:
-    u_part = S(:,end);
-    S = S(:,1:end-1) * S2L;
+    u_part = S(:,numBdyPts+1:end);
+    S = S(:,1:numBdyPts) * S2L;
 
     % Construct outgoing impedance operator:
     normal_d = [ neu_w - 1i*eta*dir_w ;
@@ -244,6 +236,43 @@ for k = 1:numPatches
     % Assemble the patch:
     L{k} = surfaceop.leaf(dom, n, k, S, ItI, ItI_scl, u_part, du_part, edges, xyz, ww, Ainv, normal_d);
 
+end
+
+end
+
+function rhs = formatRHS(rhs, X, Y, Z, ii, n, numIntPts, numPatches)
+
+if ( isa(rhs, 'function_handle') )
+    rhs = feval(rhs, X(ii,:), Y(ii,:), Z(ii,:));
+end
+
+if ( isa(rhs, 'surfacefun') )
+    nrhs = size(rhs, 2);
+    rhs = reshape(rhs.vec(), [n^2 numPatches nrhs]);
+    rhs = permute(rhs, [1 3 2]);
+    rhs = rhs(ii,:,:);
+elseif ( isnumeric(rhs) && isscalar(rhs) )
+    rhs = repmat(rhs, [numIntPts 1 numPatches]);
+elseif ( isnumeric(rhs) && isvector(rhs) && numel(rhs) ~= numIntPts*numPatches )
+    nrhs = numel(rhs);
+    rhs = repmat(reshape(rhs, 1, nrhs, 1), [numIntPts 1 numPatches]);
+elseif ( isnumeric(rhs) && ndims(rhs) == 3 )
+    if ( size(rhs, 1) == numIntPts && size(rhs, 3) == numPatches )
+        % Already in numIntPts x nrhs x numPatches form.
+    elseif ( size(rhs, 1) == numIntPts && size(rhs, 2) == numPatches )
+        rhs = permute(rhs, [1 3 2]);
+    else
+        error('SURFACEOP:LEAF:initialize:rhsDimensions', ...
+            'Righthand side data has incompatible dimensions.');
+    end
+elseif ( isnumeric(rhs) && size(rhs, 1) == numIntPts && ...
+        mod(size(rhs, 2), numPatches) == 0 )
+    nrhs = size(rhs, 2)/numPatches;
+    rhs = reshape(rhs, [numIntPts numPatches nrhs]);
+    rhs = permute(rhs, [1 3 2]);
+else
+    error('SURFACEOP:LEAF:initialize:rhsDimensions', ...
+        'Righthand side data has incompatible dimensions.');
 end
 
 end

@@ -19,6 +19,10 @@ switch S.method
     case 'DtN'
         S.patches = surfaceop.leaf.initialize_DtN(S.op, S.domain, varargin{:});
     case 'ItI'
+        if ( S.numComponents > 1 )
+            error('SURFACEOP:initialize:coupledItI', ...
+                'Coupled vector PDEs are currently supported only with the DtN method.');
+        end
         S.patches = surfaceop.leaf.initialize_ItI(S.op, S.domain, S.eta, varargin{:});
 end
 

@@ -4,8 +4,8 @@ if ( isempty(u) )
     return
 end
 
-u.components{1} = resample(u.components{1}, n);
-u.components{2} = resample(u.components{2}, n);
-u.components{3} = resample(u.components{3}, n);
+for k = 1:numel(u.components)
+    u.components{k} = resample(u.components{k}, n);
+end
 
 end
